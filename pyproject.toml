@@ -1,0 +1,31 @@
+[project]
+name = "forexmind"
+version = "0.0.1"
+description = "ForexMind AI - autonomous multi-agent forex market analyst"
+requires-python = ">=3.11"
+dependencies = [
+    "requests>=2.31",
+    "python-dotenv>=1.0",
+    "pydantic>=2.6",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "pandas>=2.2,<3.0",
+    "pandas-ta>=0.3.14b",
+    "langchain-core>=0.1.0",
+    "langgraph>=0.1.1",
+    "vaderSentiment>=3.3.2",
+    "langchain-openai>=0.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "httpx>=0.27",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["forexmind*"]
