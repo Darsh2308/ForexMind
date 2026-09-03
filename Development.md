@@ -38,7 +38,7 @@ These were open questions in `context.md` §19 and are now resolved for V1:
 
 ---
 
-## Phase 0 — System Architecture & Project Setup
+## Phase 0 — System Architecture & Project Setup [DONE]
 
 **Goal:** Nothing analytical yet. Stand up the skeleton everything else plugs into.
 
@@ -217,6 +217,8 @@ These were open questions in `context.md` §19 and are now resolved for V1:
 
 **Exit criteria:** For a batch of historical blackboards with known good/bad setups, the Reasoning Agent's calls are directionally sensible and its stated reasoning actually reflects the evidence it was given (spot-check manually).
 
+> **Verification note (updated 2026-09-03):** `ReasoningAgent` (`forexmind/agents/reasoning/reasoning_agent.py`) calls Groq (`GROQ_MODEL`, default `llama-3.3-70b-versatile`) with the full `MarketContext` and enforces the §9 output schema. It now falls back to a local Ollama server (`OLLAMA_BASE_URL`, default `http://localhost:11434/v1`) if Groq raises, and only returns the hard-coded `WAIT` response if *both* backends fail. `ReasoningSnapshot.llm_provider` records which backend actually answered (`groq` / `ollama` / `fallback`). Covered by `tests/test_reasoning_agent.py`.
+
 ---
 
 ## Phase 13 — Recommendation Storage & Evaluation Agent (Agent 13) [DONE]
@@ -280,6 +282,8 @@ These were open questions in `context.md` §19 and are now resolved for V1:
 - Basic monitoring/alerting for pipeline failures
 
 **Exit criteria:** The system survives a full day of normal usage without hitting a hard failure from a rate limit or quota exhaustion.
+
+> **Verification note (updated 2026-09-03):** Twelve Data rate-limit budgeting (`twelve_data_client.py` + `var/twelve_data_rate_limit.json`) and graceful degradation in the News Agent (try/except around Finnhub calls) were already implemented. Added: every non-critical LangGraph node (all 8 analysis agents, historical similarity, risk, learning, reasoning, save) is now wrapped by `_guarded()` in `orchestration/graph.py` — a node failure is alerted and the run continues with that section of the blackboard simply absent, instead of crashing (`fetch_market_data` and `cross_validate` stay critical/fatal since there is no meaningful degraded path for them). Alerts are logged, written to the new `pipeline_alerts` SQLite table, and optionally POSTed to `ALERT_WEBHOOK_URL` (`forexmind/monitoring/alerts.py`). `GET /health` on the real served app (`forexmind/api/app.py`, not the stale `api/main.py` skeleton which has been deleted) now reports DB reachability plus a 24h alert count. Local SQLite deployment is unchanged. Covered by `tests/test_alerts.py`, `tests/test_graph.py`, `tests/test_api.py`.
 
 ---
 

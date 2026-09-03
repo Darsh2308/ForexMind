@@ -95,3 +95,50 @@ def test_graph_execution(mock_conn, mock_agents):
     assert "conflicts" in result
     assert isinstance(result["conflicts"], list)
     assert ctx.conflicts == []
+
+
+def test_graph_degrades_gracefully_on_agent_failure(mock_conn, mock_agents):
+    """A non-critical agent crashing (e.g. SMC) must not crash the whole
+    pipeline (Phase 17) - the run should still reach a final recommendation,
+    and the failure should be recorded as a pipeline alert."""
+    with patch("forexmind.orchestration.graph.SMCAgent") as mock_smc_cls, \
+         patch("forexmind.orchestration.graph.send_alert") as mock_send_alert:
+        mock_smc_cls.return_value.analyze.side_effect = RuntimeError("SMC detector blew up")
+
+        graph = create_analysis_graph()
+        result = graph.invoke({
+            "conn": mock_conn,
+            "as_of": "2026-08-08T10:00:00Z",
+            "symbol": "EUR/USD",
+        })
+
+        ctx = result["market_context"]
+        assert ctx.smc is None
+        assert ctx.reasoning_output is not None
+        assert ctx.reasoning_output.recommendation == "WAIT"
+
+        mock_send_alert.assert_called_once()
+        _, kwargs = mock_send_alert.call_args
+        assert kwargs["source"] == "smc"
+        assert kwargs["severity"] == "warning"
+        assert "SMC detector blew up" in kwargs["message"]
+
+
+def test_graph_reraises_on_critical_node_failure(mock_conn, mock_agents):
+    """fetch_market_data has no meaningful degraded path - its failure must
+    propagate rather than silently continuing with no data."""
+    with patch("forexmind.orchestration.graph.select_timeframes", side_effect=RuntimeError("db unreachable")), \
+         patch("forexmind.orchestration.graph.send_alert") as mock_send_alert:
+
+        graph = create_analysis_graph()
+        with pytest.raises(Exception, match="db unreachable"):
+            graph.invoke({
+                "conn": mock_conn,
+                "as_of": "2026-08-08T10:00:00Z",
+                "symbol": "EUR/USD",
+            })
+
+        mock_send_alert.assert_called_once()
+        _, kwargs = mock_send_alert.call_args
+        assert kwargs["source"] == "fetch_market_data"
+        assert kwargs["severity"] == "critical"

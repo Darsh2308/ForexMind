@@ -3,8 +3,25 @@ from fastapi.testclient import TestClient
 from forexmind.api.app import app
 from unittest.mock import patch, MagicMock
 
-# We use the standard TestClient from FastAPI
-client = TestClient(app)
+# We use the standard TestClient from FastAPI. It must be entered as a context
+# manager for the ASGI lifespan (and therefore init_db) to actually run.
+client: TestClient
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _api_client():
+    global client
+    with TestClient(app) as c:
+        client = c
+        yield c
+
+def test_health_endpoint():
+    response = client.get("/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ok"
+    assert isinstance(data["alerts_last_24h"], int)
+
 
 def test_history_endpoint_empty():
     with patch("forexmind.api.app.fetch_all_recommendations", return_value=[]):

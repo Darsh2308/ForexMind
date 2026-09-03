@@ -43,3 +43,48 @@ def test_reasoning_agent_invocation(mock_context):
     assert result.recommendation == "BUY"
     assert result.confidence == 0.85
     assert result.trade_quality_score == 8
+    assert result.llm_provider == "groq"
+
+
+def test_reasoning_agent_falls_back_to_ollama_on_groq_failure(mock_context):
+    agent = ReasoningAgent(api_key="dummy")
+
+    agent.structured_llm = MagicMock()
+    agent.structured_llm.invoke.side_effect = RuntimeError("groq rate limited")
+
+    ollama_snapshot = ReasoningSnapshot(
+        recommendation="SELL",
+        confidence=0.6,
+        reasoning="Local model reasoning based on the same blackboard.",
+        supporting_evidence=["Bearish order block"],
+        conflicting_evidence=[],
+        important_news=[],
+        trade_quality_score=6,
+    )
+    agent.ollama_structured_llm = MagicMock()
+    agent.ollama_structured_llm.invoke.return_value = ollama_snapshot
+
+    result = agent.analyze(mock_context)
+
+    agent.structured_llm.invoke.assert_called_once()
+    agent.ollama_structured_llm.invoke.assert_called_once()
+    assert result.recommendation == "SELL"
+    assert result.llm_provider == "ollama"
+
+
+def test_reasoning_agent_falls_back_to_wait_when_both_llms_fail(mock_context):
+    agent = ReasoningAgent(api_key="dummy")
+
+    agent.structured_llm = MagicMock()
+    agent.structured_llm.invoke.side_effect = RuntimeError("groq down")
+
+    agent.ollama_structured_llm = MagicMock()
+    agent.ollama_structured_llm.invoke.side_effect = RuntimeError("ollama not running")
+
+    result = agent.analyze(mock_context)
+
+    assert result.recommendation == "WAIT"
+    assert result.confidence == 0.0
+    assert result.llm_provider == "fallback"
+    assert "groq down" in result.reasoning
+    assert "ollama not running" in result.reasoning

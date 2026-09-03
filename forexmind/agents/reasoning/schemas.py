@@ -20,3 +20,8 @@ class ReasoningSnapshot(BaseModel):
     
     important_news: list[str] = Field(..., description="Any highly relevant news affecting this instrument.")
     trade_quality_score: int = Field(..., ge=1, le=10, description="Overall quality score from 1 to 10.")
+
+    llm_provider: str | None = Field(
+        default=None,
+        description="Which backend actually produced this recommendation: 'groq', 'ollama', or 'fallback'.",
+    )

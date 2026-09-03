@@ -222,3 +222,37 @@ def update_recommendation_status(conn: sqlite3.Connection, rec_id: int, status: 
         (status, rec_id)
     )
     conn.commit()
+
+
+def insert_pipeline_alert(
+    conn: sqlite3.Connection,
+    created_at: str,
+    source: str,
+    severity: str,
+    message: str,
+) -> int:
+    """Persists a pipeline failure/degradation event (Phase 17 monitoring)."""
+    cursor = conn.execute(
+        """
+        INSERT INTO pipeline_alerts (created_at, source, severity, message)
+        VALUES (?, ?, ?, ?)
+        """,
+        (created_at, source, severity, message),
+    )
+    conn.commit()
+    return cursor.lastrowid
+
+
+def fetch_recent_alerts(conn: sqlite3.Connection, limit: int = 20) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM pipeline_alerts ORDER BY created_at DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def count_alerts_since(conn: sqlite3.Connection, since_timestamp: str) -> int:
+    row = conn.execute(
+        "SELECT COUNT(*) as c FROM pipeline_alerts WHERE created_at >= ?",
+        (since_timestamp,),
+    ).fetchone()
+    return row["c"] if row else 0

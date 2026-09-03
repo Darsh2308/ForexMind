@@ -60,3 +60,13 @@ CREATE TABLE IF NOT EXISTS evaluation_results (
     exit_price REAL,
     notes TEXT
 );
+
+-- Phase 17 hardening: records pipeline node failures/degradations so they are
+-- queryable (basic monitoring) instead of only living in log files.
+CREATE TABLE IF NOT EXISTS pipeline_alerts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    source TEXT NOT NULL,
+    severity TEXT NOT NULL CHECK(severity IN ('warning', 'critical')),
+    message TEXT NOT NULL
+);

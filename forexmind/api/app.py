@@ -1,21 +1,43 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import os
 
 from forexmind.api.schemas import AnalyzeRequest, AnalyzeResponse, HistoryResponse, RecommendationHistoryItem
 from forexmind.orchestration.graph import create_analysis_graph
-from forexmind.storage.db import get_connection, init_db, fetch_all_recommendations
-
-app = FastAPI(title="ForexMind AI")
+from forexmind.storage.db import get_connection, init_db, fetch_all_recommendations, count_alerts_since
 
 # We will initialize a persistent DB in the project root
 DB_PATH = Path("forexmind.db")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db(DB_PATH)
+    yield
+
+
+app = FastAPI(title="ForexMind AI", lifespan=lifespan)
 graph = create_analysis_graph()
 
-@app.on_event("startup")
-def on_startup():
-    init_db(DB_PATH)
+
+@app.get("/health")
+def health() -> dict:
+    """Basic Phase 17 monitoring: confirms the DB is reachable and surfaces
+    how many pipeline_alerts (agent/LLM failures) were recorded in the last
+    24h, so a human or uptime check can notice a degraded pipeline."""
+    try:
+        conn = get_connection(DB_PATH)
+        try:
+            since = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            alerts_last_24h = count_alerts_since(conn, since)
+        finally:
+            conn.close()
+        return {"status": "ok", "alerts_last_24h": alerts_last_24h}
+    except Exception as e:
+        return {"status": "degraded", "detail": str(e)}
 
 @app.post("/api/analyze", response_model=AnalyzeResponse)
 def analyze_endpoint(request: AnalyzeRequest):
