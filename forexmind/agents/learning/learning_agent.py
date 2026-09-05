@@ -29,7 +29,7 @@ class LearningAgent:
         session = "Unknown"
         if context.market_data and context.market_data.sessions:
             if context.market_data.sessions.active_sessions:
-                session = context.market_data.sessions.active_sessions[0].name
+                session = context.market_data.sessions.active_sessions[0]
                 
         return f"{trend}_{session}"
         

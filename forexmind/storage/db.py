@@ -14,7 +14,15 @@ def get_connection(db_path: Path | str) -> sqlite3.Connection:
         from pathlib import Path
         db_path = Path(db_path)
         db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
+    # check_same_thread=False: the orchestration graph (Phase 8) fans one
+    # request's connection out across LangGraph's internal worker-thread pool
+    # to run the analysis agents in parallel. Without this, any of those
+    # agents touching the DB from a different thread than the one that opened
+    # the connection raises sqlite3.ProgrammingError. Safe here because every
+    # access within one request is a short read/write against a local,
+    # single-process SQLite file - there's no genuine concurrent writer to
+    # race against.
+    conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
@@ -207,6 +215,26 @@ def fetch_pending_recommendations(conn: sqlite3.Connection) -> list[sqlite3.Row]
     return conn.execute(
         "SELECT * FROM recommendations WHERE status = 'PENDING' ORDER BY created_at ASC"
     ).fetchall()
+
+def fetch_recommendation_by_id(conn: sqlite3.Connection, rec_id: int) -> sqlite3.Row | None:
+    """Fetches a single recommendation row (Phase 4 detail endpoint)."""
+    return conn.execute(
+        "SELECT * FROM recommendations WHERE id = ?", (rec_id,)
+    ).fetchone()
+
+
+def fetch_market_context_payload(conn: sqlite3.Connection, rec_id: int) -> str | None:
+    """Fetches the raw MarketContext JSON stored for a recommendation, if any."""
+    row = conn.execute(
+        """
+        SELECT payload FROM agent_snapshots
+        WHERE recommendation_id = ? AND agent_name = 'market_context'
+        ORDER BY id DESC LIMIT 1
+        """,
+        (rec_id,),
+    ).fetchone()
+    return row["payload"] if row else None
+
 
 def fetch_all_recommendations(conn: sqlite3.Connection, limit: int = 50) -> list[sqlite3.Row]:
     """Fetches recommendation history for the API endpoint."""

@@ -3,8 +3,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from forexmind.orchestration.graph import create_analysis_graph
+from forexmind.orchestration.graph import create_analysis_graph, fetch_market_data
 from forexmind.orchestration.market_context import MarketContext
+from forexmind.config import Config
 
 
 @pytest.fixture
@@ -142,3 +143,28 @@ def test_graph_reraises_on_critical_node_failure(mock_conn, mock_agents):
         _, kwargs = mock_send_alert.call_args
         assert kwargs["source"] == "fetch_market_data"
         assert kwargs["severity"] == "critical"
+
+
+def test_fetch_market_data_uses_the_real_configured_api_key(mock_conn):
+    """Regression test: fetch_market_data used to hardcode
+    TwelveDataClient(api_key="dummy_key_for_graph_v1"), which made every live
+    quote fetch fail with a 401 in production regardless of what the operator
+    set TWELVE_DATA_API_KEY to. It must use the real configured key instead."""
+    fake_config = Config(
+        twelve_data_api_key="real-key-from-env",
+        twelve_data_daily_request_limit=800,
+        db_path=None,  # not read by this node
+        log_level="INFO",
+        env="test",
+    )
+    with patch("forexmind.orchestration.graph.load_config", return_value=fake_config), \
+         patch("forexmind.orchestration.graph.select_timeframes", return_value=["1h"]), \
+         patch("forexmind.orchestration.graph.TwelveDataClient") as mock_client_cls, \
+         patch("forexmind.orchestration.graph.MarketDataAgent") as mock_agent_cls:
+        mock_agent_cls.return_value.get_snapshot.return_value = "snapshot"
+
+        fetch_market_data({"conn": mock_conn, "as_of": None, "symbol": "EUR/USD"})
+
+        mock_client_cls.assert_called_once_with(
+            api_key="real-key-from-env", daily_request_limit=800
+        )

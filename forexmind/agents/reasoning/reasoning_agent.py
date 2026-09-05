@@ -53,8 +53,12 @@ class ReasoningAgent:
         ollama_base_url: str | None = None,
         ollama_model: str | None = None,
     ):
-        groq_key = api_key or os.getenv("GROQ_API_KEY", "mock_key")
-        groq_model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+        # os.getenv(VAR, default) only falls back when VAR is entirely unset -
+        # a blank .env entry (VAR=) still counts as "set" to an empty string,
+        # which ChatOpenAI/the OpenAI SDK treats as no credentials at all
+        # instead of falling through. `or` treats blank the same as unset.
+        groq_key = api_key or os.getenv("GROQ_API_KEY") or "mock_key"
+        groq_model = os.getenv("GROQ_MODEL") or "llama-3.3-70b-versatile"
         self.llm = ChatOpenAI(
             base_url="https://api.groq.com/openai/v1",
             api_key=groq_key,
@@ -66,10 +70,10 @@ class ReasoningAgent:
         # Local Ollama fallback. Ollama exposes an OpenAI-compatible endpoint
         # that ignores the api_key value, but ChatOpenAI requires a non-empty
         # string to be passed.
-        self.ollama_base_url = ollama_base_url or os.getenv(
-            "OLLAMA_BASE_URL", "http://localhost:11434/v1"
+        self.ollama_base_url = (
+            ollama_base_url or os.getenv("OLLAMA_BASE_URL") or "http://localhost:11434/v1"
         )
-        self.ollama_model = ollama_model or os.getenv("OLLAMA_MODEL", "llama3.3")
+        self.ollama_model = ollama_model or os.getenv("OLLAMA_MODEL") or "llama3.3"
         self.ollama_llm = ChatOpenAI(
             base_url=self.ollama_base_url,
             api_key="ollama",

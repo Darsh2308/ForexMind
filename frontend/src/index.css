@@ -1,0 +1,83 @@
+@import 'tailwindcss';
+
+/*
+ * Design tokens for ForexMind AI. Semantic colors are split into two
+ * namespaces on purpose: BUY/SELL/WAIT is the Reasoning Agent's live call,
+ * WIN/LOSS/PENDING/EXPIRED is a resolved recommendation's outcome. They
+ * overlap in hue (a WIN and a BUY are both "good") but are never the same
+ * token, since a page can show both at once for different recommendations.
+ */
+@theme {
+  --font-sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+
+  --color-paper: #f5f6f2;
+  --color-raised: #ffffff;
+  --color-ink: #181b1d;
+  --color-ink-soft: #5b6169;
+  --color-ink-faint: #8b9096;
+  --color-line: #dcdfd8;
+  --color-accent: #1b3a6b;
+  --color-accent-soft: #eef2f8;
+  /* The text/icon color that pairs with a solid `bg-accent` fill - not
+     always white, since dark mode's accent is a light blue that white text
+     fails WCAG AA against (2.6:1, needs 4.5:1). */
+  --color-accent-contrast: #ffffff;
+
+  --color-buy: #146c43;
+  --color-buy-soft: #e7f3ec;
+  --color-sell: #a63d1f;
+  --color-sell-soft: #faece5;
+  --color-wait: #8a6d1f;
+  --color-wait-soft: #f7f1e0;
+
+  --color-win: #146c43;
+  --color-win-soft: #e7f3ec;
+  --color-loss: #a63d1f;
+  --color-loss-soft: #faece5;
+  --color-pending: #1b3a6b;
+  --color-pending-soft: #eef2f8;
+  --color-expired: #8b9096;
+  --color-expired-soft: #eceeec;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-paper: #14171b;
+    --color-raised: #1b1f24;
+    --color-ink: #e8eaec;
+    --color-ink-soft: #a2a9b0;
+    /* #6b7178 measured as low as 3.08:1 against some of the surfaces this
+       token sits on (accent-soft badges, expired-soft chips) - Lighthouse
+       flagged it (needs 4.5:1 for body text). #909aa1 clears 4.5:1 against
+       every surface it's actually used on: paper, accent-soft, expired-soft. */
+    --color-ink-faint: #909aa1;
+    --color-line: #2b3036;
+    --color-accent: #7fa2e0;
+    --color-accent-soft: #1d2836;
+    --color-accent-contrast: #181b1d;
+
+    --color-buy: #4cb884;
+    --color-buy-soft: #173226;
+    --color-sell: #e3986e;
+    --color-sell-soft: #33241c;
+    --color-wait: #d7b463;
+    --color-wait-soft: #302a17;
+
+    --color-win: #4cb884;
+    --color-win-soft: #173226;
+    --color-loss: #e3986e;
+    --color-loss-soft: #33241c;
+    --color-pending: #7fa2e0;
+    --color-pending-soft: #1d2836;
+    --color-expired: #909aa1;
+    --color-expired-soft: #23262b;
+  }
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}

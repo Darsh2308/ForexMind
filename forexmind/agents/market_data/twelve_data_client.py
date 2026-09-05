@@ -80,13 +80,21 @@ class TwelveDataClient:
 
     def _get(self, endpoint: str, params: dict[str, Any]) -> dict[str, Any]:
         self._rate_limiter.check_and_increment()
-        response = requests.get(
-            f"{BASE_URL}/{endpoint}",
-            params={**params, "apikey": self._api_key},
-            timeout=self._timeout_seconds,
-        )
-        response.raise_for_status()
-        payload = response.json()
+        try:
+            response = requests.get(
+                f"{BASE_URL}/{endpoint}",
+                params={**params, "apikey": self._api_key},
+                timeout=self._timeout_seconds,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except requests.exceptions.RequestException as e:
+            # Callers (e.g. MarketDataAgent's live-quote path) only handle
+            # TwelveDataError - normalize every transport/HTTP-status failure
+            # (auth, rate limit, timeout, DNS, 5xx) to that one type so a
+            # transient API failure degrades gracefully instead of leaking an
+            # unhandled requests exception up through the whole pipeline.
+            raise TwelveDataError(f"Twelve Data request to {endpoint!r} failed: {e}") from e
         if isinstance(payload, dict) and payload.get("status") == "error":
             raise TwelveDataError(payload.get("message", "Unknown Twelve Data API error"))
         return payload

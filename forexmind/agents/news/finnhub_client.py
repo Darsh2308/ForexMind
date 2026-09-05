@@ -9,7 +9,9 @@ class FinnhubClient:
     _calendar_cache = {}
 
     def __init__(self, api_key: str | None = None):
-        self.api_key = api_key or os.getenv("FINNHUB_API_KEY", "dummy")
+        # `or` (not the os.getenv default arg) so a blank .env entry
+        # (FINNHUB_API_KEY=) is treated the same as unset, not as "".
+        self.api_key = api_key or os.getenv("FINNHUB_API_KEY") or "dummy"
         self.base_url = "https://finnhub.io/api/v1"
         self.cache_ttl = 900  # 15 minutes
 

@@ -15,6 +15,16 @@ def _api_client():
         client = c
         yield c
 
+def test_cors_allows_configured_frontend_origin():
+    response = client.get("/health", headers={"Origin": "http://localhost:5173"})
+    assert response.headers.get("access-control-allow-origin") == "http://localhost:5173"
+
+
+def test_cors_rejects_unlisted_origin():
+    response = client.get("/health", headers={"Origin": "http://evil.example.com"})
+    assert "access-control-allow-origin" not in {k.lower() for k in response.headers.keys()}
+
+
 def test_health_endpoint():
     response = client.get("/health")
     assert response.status_code == 200
@@ -48,6 +58,192 @@ def test_history_endpoint_with_data():
         data = response.json()
         assert len(data["recommendations"]) == 1
         assert data["recommendations"][0]["status"] == "WIN"
+
+def test_candles_endpoint():
+    mock_rows = [
+        {
+            "timestamp": "2026-08-08T09:00:00Z",
+            "open": 1.1,
+            "high": 1.101,
+            "low": 1.099,
+            "close": 1.1005,
+            "volume": None,
+        },
+        {
+            "timestamp": "2026-08-08T09:15:00Z",
+            "open": 1.1005,
+            "high": 1.102,
+            "low": 1.0995,
+            "close": 1.101,
+            "volume": None,
+        },
+    ]
+    with patch("forexmind.api.app.fetch_candles_before", return_value=mock_rows) as mock_fetch:
+        response = client.get("/api/candles?interval=15min&limit=50")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["interval"] == "15min"
+        assert len(data["candles"]) == 2
+        assert data["candles"][0]["close"] == 1.1005
+        mock_fetch.assert_called_once()
+        _, kwargs = mock_fetch.call_args
+        assert kwargs["limit"] == 50
+
+
+def test_recommendation_detail_endpoint_not_found():
+    with patch("forexmind.api.app.fetch_recommendation_by_id", return_value=None):
+        response = client.get("/api/recommendation/999")
+        assert response.status_code == 404
+
+
+def test_recommendation_detail_endpoint_no_stored_context():
+    with patch(
+        "forexmind.api.app.fetch_recommendation_by_id",
+        return_value={"id": 1, "created_at": "2026-08-08T10:00:00Z", "status": "WIN"},
+    ), patch("forexmind.api.app.fetch_market_context_payload", return_value=None):
+        response = client.get("/api/recommendation/1")
+        assert response.status_code == 404
+
+
+def test_recommendation_detail_endpoint_with_data():
+    mock_row = {"id": 7, "created_at": "2026-08-08T10:00:00Z", "status": "PENDING"}
+    mock_payload = (
+        '{"symbol": "EUR/USD", "generated_at": "2026-08-08T10:00:00Z", '
+        '"technical_analysis": {"as_of": "2026-08-08T10:00:00Z"}}'
+    )
+    with patch(
+        "forexmind.api.app.fetch_recommendation_by_id", return_value=mock_row
+    ), patch(
+        "forexmind.api.app.fetch_market_context_payload", return_value=mock_payload
+    ):
+        response = client.get("/api/recommendation/7")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == 7
+        assert data["status"] == "PENDING"
+        assert data["market_context"]["symbol"] == "EUR/USD"
+        assert data["market_context"]["technical_analysis"]["as_of"] == "2026-08-08T10:00:00Z"
+
+
+def test_chat_endpoint_not_found():
+    with patch("forexmind.api.app.fetch_recommendation_by_id", return_value=None):
+        response = client.post("/api/chat", json={"recommendation_id": 999, "message": "why?"})
+        assert response.status_code == 404
+
+
+def test_chat_endpoint_no_stored_context():
+    with patch(
+        "forexmind.api.app.fetch_recommendation_by_id",
+        return_value={"id": 1, "created_at": "2026-08-08T10:00:00Z", "status": "PENDING"},
+    ), patch("forexmind.api.app.fetch_market_context_payload", return_value=None):
+        response = client.post("/api/chat", json={"recommendation_id": 1, "message": "why?"})
+        assert response.status_code == 404
+
+
+def test_chat_endpoint_replies():
+    mock_row = {"id": 6, "created_at": "2026-08-08T10:00:00Z", "status": "PENDING"}
+    mock_payload = '{"symbol": "EUR/USD"}'
+    with patch(
+        "forexmind.api.app.fetch_recommendation_by_id", return_value=mock_row
+    ), patch(
+        "forexmind.api.app.fetch_market_context_payload", return_value=mock_payload
+    ), patch("forexmind.api.app.chat_agent") as mock_agent:
+        mock_agent.reply.return_value = ("No valid setup was found, so WAIT.", "groq")
+
+        response = client.post(
+            "/api/chat",
+            json={
+                "recommendation_id": 6,
+                "message": "Why WAIT?",
+                "history": [{"role": "user", "content": "hi"}],
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["reply"] == "No valid setup was found, so WAIT."
+        assert data["llm_provider"] == "groq"
+
+        mock_agent.reply.assert_called_once()
+        _, kwargs = mock_agent.reply.call_args
+        assert kwargs["context_json"] == mock_payload
+        assert kwargs["message"] == "Why WAIT?"
+        assert kwargs["history"] == [("user", "hi")]
+
+
+def test_chat_endpoint_cold_uses_fresh_latest_recommendation():
+    """No recommendation_id given, but the latest recommendation is younger
+    than the freshness window - should ground on it directly, no graph run."""
+    from datetime import datetime, timezone
+
+    recent = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    mock_row = {"id": 42, "created_at": recent, "status": "PENDING"}
+    mock_payload = '{"symbol": "EUR/USD"}'
+
+    with patch(
+        "forexmind.api.app.fetch_all_recommendations", return_value=[mock_row]
+    ), patch(
+        "forexmind.api.app.fetch_market_context_payload", return_value=mock_payload
+    ), patch("forexmind.api.app.graph") as mock_graph, patch(
+        "forexmind.api.app.chat_agent"
+    ) as mock_agent:
+        mock_agent.reply.return_value = ("Latest call was BUY because...", "groq")
+
+        response = client.post("/api/chat", json={"message": "buy or sell?"})
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["reply"] == "Latest call was BUY because..."
+        assert data["recommendation_id"] == 42
+        assert data["triggered_new_analysis"] is False
+        mock_graph.invoke.assert_not_called()
+
+        _, kwargs = mock_agent.reply.call_args
+        assert kwargs["context_json"] == mock_payload
+
+
+def test_chat_endpoint_cold_triggers_fresh_analysis_when_stale():
+    """No recommendation_id, and either no recommendation exists yet or the
+    latest one is older than the freshness window - should run the analysis
+    graph inline and ground the reply on that fresh MarketContext."""
+    from forexmind.orchestration.market_context import MarketContext
+    from forexmind.agents.reasoning.schemas import ReasoningSnapshot
+    from datetime import datetime, timezone
+
+    ctx = MarketContext(symbol="EUR/USD", generated_at=datetime.now(timezone.utc))
+    ctx.reasoning_output = ReasoningSnapshot(
+        recommendation="WAIT",
+        confidence=0.0,
+        entry=None,
+        stop_loss=None,
+        take_profit=None,
+        reasoning="No valid setup right now.",
+        supporting_evidence=[],
+        conflicting_evidence=[],
+        important_news=[],
+        trade_quality_score=1,
+    )
+
+    with patch(
+        "forexmind.api.app.fetch_all_recommendations", return_value=[]
+    ), patch("forexmind.api.app.graph") as mock_graph, patch(
+        "forexmind.api.app.chat_agent"
+    ) as mock_agent:
+        mock_graph.invoke.return_value = {"market_context": ctx}
+        mock_agent.reply.return_value = ("Right now it's a WAIT because...", "groq")
+
+        response = client.post("/api/chat", json={"message": "buy or sell?"})
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["reply"] == "Right now it's a WAIT because..."
+        assert data["recommendation_id"] is None
+        assert data["triggered_new_analysis"] is True
+        mock_graph.invoke.assert_called_once()
+
+        _, kwargs = mock_agent.reply.call_args
+        assert '"recommendation":"WAIT"' in kwargs["context_json"]
+
 
 @patch("forexmind.api.app.graph")
 def test_analyze_endpoint(mock_graph):

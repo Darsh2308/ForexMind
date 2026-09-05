@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 import pytest
+import requests
 
 from forexmind.agents.market_data.twelve_data_client import (
     TwelveDataClient,
@@ -12,7 +13,7 @@ def _mock_response(json_payload, status_ok=True):
     class _Resp:
         def raise_for_status(self):
             if not status_ok:
-                raise RuntimeError("HTTP error")
+                raise requests.exceptions.HTTPError("401 Client Error: Unauthorized")
 
         def json(self):
             return json_payload
@@ -23,6 +24,20 @@ def _mock_response(json_payload, status_ok=True):
 def test_requires_api_key(tmp_path):
     with pytest.raises(TwelveDataError):
         TwelveDataClient(api_key="", rate_limit_state_path=tmp_path / "rl.json")
+
+
+def test_http_error_is_wrapped_as_twelve_data_error(tmp_path):
+    """A raw requests exception (auth failure, rate limit, timeout, 5xx) must
+    surface as TwelveDataError - that's the only exception type callers like
+    MarketDataAgent's live-quote path are set up to catch and degrade on."""
+    client = TwelveDataClient(
+        api_key="bad-key", rate_limit_state_path=tmp_path / "rl.json"
+    )
+    with patch(
+        "requests.get", return_value=_mock_response({}, status_ok=False)
+    ):
+        with pytest.raises(TwelveDataError):
+            client.get_price()
 
 
 def test_get_price_parses_response(tmp_path):

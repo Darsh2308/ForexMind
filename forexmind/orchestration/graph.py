@@ -28,6 +28,7 @@ from forexmind.agents.risk_analysis.risk_analysis_agent import RiskAnalysisAgent
 from forexmind.agents.learning.learning_agent import LearningAgent
 from forexmind.agents.reasoning.reasoning_agent import ReasoningAgent
 from forexmind.monitoring.alerts import send_alert
+from forexmind.config import load_config
 
 
 class GraphState(TypedDict, total=False):
@@ -58,7 +59,11 @@ def fetch_market_data(state: GraphState) -> GraphState:
     timeframes = select_timeframes(conn, as_of=as_of)
     
     # Run Market Data Agent
-    client = TwelveDataClient(api_key="dummy_key_for_graph_v1")
+    config = load_config()
+    client = TwelveDataClient(
+        api_key=config.twelve_data_api_key or "",
+        daily_request_limit=config.twelve_data_daily_request_limit,
+    )
     md_agent = MarketDataAgent(client, conn)
     md_snapshot = md_agent.get_snapshot(
         datetime.fromisoformat(as_of.replace("Z", "+00:00")) if as_of else None
